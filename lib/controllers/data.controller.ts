@@ -1,75 +1,94 @@
-import { request } from 'http';
-import Controller from '../interfaces/controller.interface';
+import { checkIdParam } from "../middlewares/deviceIdParam.middleware";
+import Controller from "../interfaces/controller.interface";
 import { Request, Response, NextFunction, Router } from 'express';
-
-let testArr = [4,5,6,3,5,3,7,5,13,5,6,4,3,6,3,6];
+import DataService from "../modules/services/data.service";
+import Joi from "joi";
+import { IData } from "../modules/models/data.model";
 
 class DataController implements Controller {
-   public path = '/api/data';
-   public router = Router();
+    public path = '/api/data';
+    public router = Router();
+    public dataService = new DataService;
+ 
+    constructor() {
+        this.initializeRoutes();
+    }
+ 
+    private initializeRoutes() {
+        this.router.get(`${this.path}/latest`, this.getAll);
+        this.router.get(`${this.path}/:id`,checkIdParam, this.getAllDeviceData);
+        this.router.get(`${this.path}/:id/latest`,checkIdParam, this.getLatestReadings);
+        this.router.get(`${this.path}/:id/:num`, checkIdParam,  this.getReadingRange);
+        this.router.post(`${this.path}/:id`,checkIdParam, this.addData);
+        this.router.delete(`${this.path}/all`, this.deleteAll);
+        this.router.delete(`${this.path}/:id`, checkIdParam, this.cleanSelected);
+    }
 
-   constructor() {
-       this.initializeRoutes();
-   }
+    private getAll = async (request: Request, response: Response, next: NextFunction) => {
+        const allData = await this.dataService.getNewest();
+        response.status(200).json(allData);
+    }
 
-   private initializeRoutes() {
-       this.router.get(`${this.path}/:id`, this.get);
-       this.router.get(`${this.path}/latest`, this.getLatestReadingsFromAllDevices);
-       this.router.get(`${this.path}/:id/latest`,this.getLatestID);
-       this.router.get(`${this.path}/:id/:num`, this.getRange);
-       this.router.post(`${this.path}/:id`, this.addData);
-       this.router.delete(`${this.path}/all`, this.deleteAll);
-       this.router.delete(`${this.path}/:id`, this.deleteSel);
+    private getLatestReadings = async (request: Request, response: Response, next: NextFunction) => {
+        const { id } = request.params;
+        const allData = await this.dataService.get(id);
+        response.status(200).json(allData);
+    }
+     
+    private getAllDeviceData = async (request: Request, response: Response, next: NextFunction) => {
+        const { id } = request.params;
+        const data = await this.dataService.query(id);
+        response.status(200).json(data);
+    }
 
-   }
+    private getReadingRange = async (request: Request, response: Response, next: NextFunction) => {
+        const { id, num } = request.params;
+        const data = await this.dataService.getNewest(id,num);
+        response.status(200).json(data);
+    }
+    private addData = async (request: Request, response: Response, next: NextFunction) => {
+        const { air } = request.body;
+        const { id } = request.params;
 
-   private getLatestReadingsFromAllDevices = async (request: Request, response: Response) => {
-    console.log('jest');
-    response.status(200).json(testArr);
- };
+        const schema = Joi.object({
+            air: Joi.array()
+                .items(
+                    Joi.object({
+                        id: Joi.number().integer().positive().required(),
+                        value: Joi.number().positive().required()
+                    })
+                )
+                .unique((a, b) => a.id === b.id),
+            deviceId: Joi.number().integer().positive().valid(parseInt(id, 10)).required()
+         });
+       
+        try {
+            const validatedData = await schema.validateAsync({air, deviceId: parseInt(id, 10)});
+            const readingData: IData = {
+                temperature: validatedData.air[0].value,
+                pressure: validatedData.air[1].value,
+                humidity: validatedData.air[2].value,
+                deviceId: validatedData.deviceId,
+            }
+            await this.dataService.createData(readingData);
+            response.status(200).json(readingData);
+        } catch (error: any) {
+            console.error(`Validation Error: ${error.message}`);
+            response.status(400).json({ error: 'Invalid input data.' });
+        }
+    }
+     
+    private deleteAll = async (request: Request, response: Response, next: NextFunction) => {
+        await this.dataService.deleteData();
+        response.status(200).json();
+    }
 
- private addData = async (request: Request, response: Response, next: NextFunction) => {
-    const { elem } = request.body;
-    const { id } = request.params;
-    testArr.push(Number(id));
-    response.status(200).json(id);
-};
-
-private get = async(request: Request, response: Response, next: NextFunction) => {
-    const {id} = request.params;
-    response.status(200).json(testArr[Number(id)]);
-};
-
-private getLatestID = async (request: Request, response: Response, next: NextFunction) => {
-    const { id } = request.params;
-    let max = -Infinity; 
-    for (let i = 0; i < testArr.length; i++) {
-        if (testArr[i] > max) {
-            max = testArr[i]; 
-    }    
+    private cleanSelected = async (request: Request, response: Response, next: NextFunction) => {
+        const { id } = request.params;
+        await this.dataService.deleteData(id);
+        response.status(200).json();
+    }
 }
-    response.status(200).json(max);
-};
-
-private getRange = async (request: Request, response: Response, next: NextFunction) => {
-    const id = Number(request.params.id);
-    const number = Number(request.params.num);
-
-    const array = testArr.slice(id, id+number);
-    response.status(200).json(array);
-};
-
-private deleteAll = async(request: Request, response: Response, next: NextFunction) => {
-    testArr = [];
-    response.status(200).json(testArr);
-};
-
-private deleteSel = async (request: Request, response: Response, next: NextFunction) => {
-    const { id } = request.params;
-    const arr = testArr.filter(item => item !== Number(id));
-    response.status(200).json(arr);
-};
-
-}
-
-export default DataController;
+ 
+ export default DataController;
+ 

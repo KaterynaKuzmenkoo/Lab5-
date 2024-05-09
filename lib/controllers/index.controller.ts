@@ -11,13 +11,12 @@ class IndexController implements Controller {
    }
 
    private initializeRoutes() {
-        this.router.get(this.path, this.serveIndex);
+       this.router.get(this.path, this.serveIndex);
    }
 
    private serveIndex = async (request: Request, response: Response) => {
        response.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
    }
-
 }
 
 export default IndexController;
